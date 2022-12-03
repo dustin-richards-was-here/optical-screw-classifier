@@ -4,6 +4,7 @@ from scipy import ndimage
 import matplotlib.pyplot as plt
 import sys
 import pyransac3d as pyrsc
+import math
 
 import pdb
 
@@ -52,7 +53,10 @@ def convoleAndRANSAC(img: np.ndarray, kernel: np.ndarray):
     for i in range(len(inlierIndices)):
         inliers[i] = candidatePixels[inlierIndices[i]]
 
-    return conv, inliers, slope, intercept
+    # the RANSAC library returns a 3D slope vector, convert it to rise/run
+    slope = math.tan(math.atan2(slope[1], slope[0]))
+
+    return conv, inliers, slope, intercept[1]
 
 def printUsage():
     print("Usage: " + sys.argv[0] + " kernel img1 img2 img3 ...")
@@ -62,18 +66,12 @@ if (len(sys.argv) < 3):
 
 kernelImgFile = sys.argv[1]
 kernelImg = ImageOps.grayscale(Image.open(kernelImgFile))
-kernelImgInvert = ImageOps.invert(kernelImg)
 
 lowerKernel = np.array(kernelImg).astype(float) / 255
-lowerInsideKernel = np.array(kernelImgInvert.rotate(180)).astype(float) / 255
-
 upperKernel = np.array(kernelImg.rotate(180)).astype(float) / 255
-upperInsideKernel = np.array(kernelImgInvert).astype(float) / 255
 
 lowerKernel = (lowerKernel - 0.5) * 2
 upperKernel = (upperKernel - 0.5) * 2
-lowerInsideKernel = (lowerInsideKernel - 0.5) * 2
-upperInsideKernel = (upperInsideKernel - 0.5) * 2
 
 imgs = []
 
@@ -84,28 +82,33 @@ for i in range(len(sys.argv) - 2):
 convs = []
 lowerInliers = []
 upperInliers = []
-lowerInsideInliers = []
-upperInsideInliers = []
+lowerLineY = []
+upperLineY = []
 
 for i in range(len(imgs)):
     # convolve the image with the tread kernel and use RANSAC to find a cluster
     #  of points that represents the threadform
     # we do this twice because one of the kernels is upside down in order to
     #  get the threads in the lower half of the image
-    lowerConv, _lowerInliers, _, _ = convoleAndRANSAC(imgs[i], lowerKernel)
-    print("lower")
-    upperConv, _upperInliers, _, _ = convoleAndRANSAC(imgs[i], upperKernel)
-    print("upper")
-    lowerInsideConv, _lowerInsideInliers, _, _ = convoleAndRANSAC(imgs[i], lowerInsideKernel)
-    print("lower inside")
-    upperInsideConv, _upperInsideInliers, _, _ = convoleAndRANSAC(imgs[i], upperInsideKernel)
-    print("upper inside")
+    lowerConv, _lowerInliers, lowerSlope, lowerIntercept = convoleAndRANSAC(imgs[i], lowerKernel)
+    upperConv, _upperInliers, upperSlope, upperIntercept = convoleAndRANSAC(imgs[i], upperKernel)
 
-    convs.append(lowerConv + upperConv + lowerInsideConv + upperInsideConv)
+    # combine the two convolution images, really just for visualizing
+    convs.append(lowerConv + upperConv)
+
     lowerInliers.append(_lowerInliers)
     upperInliers.append(_upperInliers)
-    lowerInsideInliers.append(_lowerInsideInliers)
-    upperInsideInliers.append(_upperInsideInliers)
+
+    _lowerLineY = np.empty(imgs[i].shape[1])
+    _upperLineY = np.empty(imgs[i].shape[1])
+
+    # calculate the points of a line for either side of the screw
+    for j in range(imgs[i].shape[1]):
+        _lowerLineY[j] = lowerSlope * j + lowerIntercept
+        _upperLineY[j] = upperSlope * j + upperIntercept
+
+    lowerLineY.append(_lowerLineY)
+    upperLineY.append(_upperLineY)
 
     print(str(i+1) + "/" + str(len(imgs)))
 
@@ -117,8 +120,8 @@ for i in range(len(imgs)):
     plt.imshow(imgs[i])
     plt.plot(upperInliers[i][:, 0], upperInliers[i][:, 1], linewidth = 0, marker = '.', color = 'green')
     plt.plot(lowerInliers[i][:, 0], lowerInliers[i][:, 1], linewidth = 0, marker = '.', color = 'red')
-    plt.plot(upperInsideInliers[i][:, 0], upperInsideInliers[i][:, 1], linewidth = 0, marker = '.', color = 'magenta')
-    plt.plot(lowerInsideInliers[i][:, 0], lowerInsideInliers[i][:, 1], linewidth = 0, marker = '.', color = 'yellow')
+    plt.plot(lowerLineY[i], color = 'yellow')
+    plt.plot(upperLineY[i], color = 'magenta')
     
     plt.subplot(subplotRows, subplotCols, i + 1 + len(imgs))
     plt.imshow(convs[i])
@@ -127,7 +130,7 @@ for i in range(len(imgs)):
     plt.imshow(convs[i] + imgs[i])
     plt.plot(upperInliers[i][:, 0], upperInliers[i][:, 1], linewidth = 0, marker = '.', color = 'green')
     plt.plot(lowerInliers[i][:, 0], lowerInliers[i][:, 1], linewidth = 0, marker = '.', color = 'red')
-    plt.plot(upperInsideInliers[i][:, 0], upperInsideInliers[i][:, 1], linewidth = 0, marker = '.', color = 'magenta')
-    plt.plot(lowerInsideInliers[i][:, 0], lowerInsideInliers[i][:, 1], linewidth = 0, marker = '.', color = 'yellow')
+    plt.plot(lowerLineY[i], color = 'yellow')
+    plt.plot(upperLineY[i], color = 'magenta')
 
 plt.show()
