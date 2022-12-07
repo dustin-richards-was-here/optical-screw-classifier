@@ -116,6 +116,8 @@ def main():
     upperLineY = []
     lowerIntensityToCenter = []
     upperIntensityToCenter = []
+    lowerThreadFrequencySamples = []
+    ffts = []
 
     for i in range(len(imgs)):
         # convolve the image with the tread kernel and use RANSAC to find a cluster
@@ -146,7 +148,28 @@ def main():
         lowerXLimArgmax = np.argmax(_lowerInliers[:, 0])
         lowerXLims = (_lowerInliers[lowerXLimArgmin, 0], _lowerInliers[lowerXLimArgmax, 0])
 
-        lowerIntensityToCenter.append(getIntensityToCenter(imgs[i], lowerSlope, lowerIntercept, lowerXLims))
+        _lowerIntensityToCenter = getIntensityToCenter(imgs[i], lowerSlope, lowerIntercept, lowerXLims)
+        lowerIntensityToCenter.append(_lowerIntensityToCenter)
+
+        lowerProbableEndOfThreadIndex = None
+        lowerIntensityToCenterDiff = np.diff(_lowerIntensityToCenter)
+        j = 0
+        while (j < len(lowerIntensityToCenterDiff) and lowerProbableEndOfThreadIndex == None):
+            if (lowerIntensityToCenterDiff[j] >= 0):
+                lowerProbableEndOfThreadIndex = j
+                print(j)
+            j += 1
+
+        if (lowerProbableEndOfThreadIndex == None):
+            raise RuntimeError("Couldn't find inside edge of threads!")
+
+        lowerThreadFrequencySampleIndex = int(0.2 * lowerProbableEndOfThreadIndex)
+
+        lowerThreadFrequencySample = getLineOfPixels(imgs[i], lowerSlope, lowerIntercept, -lowerThreadFrequencySampleIndex, lowerXLims)
+        lowerThreadFrequencySamples.append(lowerThreadFrequencySample)
+
+        fft = np.abs(np.fft.fft(lowerThreadFrequencySample))
+        ffts.append(fft)
 
         print(str(i+1) + "/" + str(len(imgs)))
 
@@ -169,10 +192,11 @@ def main():
         plt.plot(upperLineY[i], color = 'magenta')
 
         plt.subplot(subplotRows, subplotCols, i + 1 + len(imgs) * 2)
-        plt.plot(lowerIntensityToCenter[i])
+        plt.plot(lowerThreadFrequencySamples[i])
 
         plt.subplot(subplotRows, subplotCols, i + 1 + len(imgs) * 3)
-        plt.plot(np.diff(lowerIntensityToCenter[i]))
+        freqs = np.fft.fftfreq(len(ffts[i]))
+        plt.plot(freqs, ffts[i])
 
     plt.show()
 
