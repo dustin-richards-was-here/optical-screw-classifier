@@ -212,7 +212,16 @@ def main():
         freqs = np.fft.fftfreq(len(ffts[i]))
         plt.plot(freqs, ffts[i])
 
+        # find the largest peak in the FFT (other than the DC bias in the center)
+        #  and find the period in pixels that corresponds to it, that's our
+        #  thread pitch
+        maxMagnitudeIndex = np.argmax(ffts[i][int(len(ffts[i]) / 2 + 1) : len(ffts[i])]) + int(len(ffts[i]) / 2 + 1)
+        threadPitchFrequency = abs(freqs[maxMagnitudeIndex])
+        threadPitchPixels = 1 / threadPitchFrequency
+        print(str(i) + " pitch: " + str(threadPitchPixels) + " pixels")
+
     plt.show()
+
 
 if __name__ == "__main__":
     main()
