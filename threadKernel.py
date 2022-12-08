@@ -8,6 +8,9 @@ import math
 
 import pdb
 
+# convolve img (should be a screw aligned along and centered with the y-axis)
+#  and kernel (should be a thread point) and use RANSAC to fit a line to the
+#  points of the threads matched by the kernel
 def convoleAndRANSAC(img: np.ndarray, kernel: np.ndarray):
     # convolve the image with the tread kernel
     conv = ndimage.convolve(img, kernel)
@@ -58,7 +61,8 @@ def convoleAndRANSAC(img: np.ndarray, kernel: np.ndarray):
 
     return conv, inliers.astype(int), slope, intercept[1]
 
-# grabs a line of pixels from the image
+# grabs a line of pixels from the image along some line defined by the given
+#  slope, intercept, and intercept y-offset between the given x limits
 def getLineOfPixels(img: np.ndarray, slope: float, intercept: float, yOffset: float, xLimits: tuple[int]):
     line = np.empty(xLimits[1] - xLimits[0])
 
@@ -130,13 +134,16 @@ def main():
         # combine the two convolution images, really just for visualizing
         convs.append(lowerConv + upperConv)
 
+        # save the array of inlier points
         lowerInliers.append(_lowerInliers)
         upperInliers.append(_upperInliers)
 
+        # calculate the points of a line for either side of the screw based on the
+        #  RANSAC results from above
         _lowerLineY = np.empty(imgs[i].shape[1])
         _upperLineY = np.empty(imgs[i].shape[1])
 
-        # calculate the points of a line for either side of the screw
+        # TODO: optimize with numpy
         for j in range(imgs[i].shape[1]):
             _lowerLineY[j] = lowerSlope * j + lowerIntercept
             _upperLineY[j] = upperSlope * j + upperIntercept
@@ -144,30 +151,42 @@ def main():
         lowerLineY.append(_lowerLineY)
         upperLineY.append(_upperLineY)
 
+        # find the x coordinates of the furthest left and right inlier point
         lowerXLimArgmin = np.argmin(_lowerInliers[:, 0])
         lowerXLimArgmax = np.argmax(_lowerInliers[:, 0])
         lowerXLims = (_lowerInliers[lowerXLimArgmin, 0], _lowerInliers[lowerXLimArgmax, 0])
 
+        # start with a line between these two extreme points. take the average
+        #  intensity of the image across this line. step the line's y-intercept
+        #  closer to the centerline of the image, take the average intensity.
+        #  repeat until at the center.
         _lowerIntensityToCenter = getIntensityToCenter(imgs[i], lowerSlope, lowerIntercept, lowerXLims)
         lowerIntensityToCenter.append(_lowerIntensityToCenter)
 
+        # find the point along the average intensity curve from getIntensityToCenter
+        #  where we are out of the threads and onto the screw body
+        # TODO: this will need to change for silhouette images from the jig
         lowerProbableEndOfThreadIndex = None
         lowerIntensityToCenterDiff = np.diff(_lowerIntensityToCenter)
         j = 0
         while (j < len(lowerIntensityToCenterDiff) and lowerProbableEndOfThreadIndex == None):
             if (lowerIntensityToCenterDiff[j] >= 0):
                 lowerProbableEndOfThreadIndex = j
-                print(j)
             j += 1
 
         if (lowerProbableEndOfThreadIndex == None):
             raise RuntimeError("Couldn't find inside edge of threads!")
 
+        # we want to use the intensity curve that's 20% of the way between the
+        #  initial line and the one identified above as the border between threads
+        #  and screw body
         lowerThreadFrequencySampleIndex = int(0.2 * lowerProbableEndOfThreadIndex)
 
         lowerThreadFrequencySample = getLineOfPixels(imgs[i], lowerSlope, lowerIntercept, -lowerThreadFrequencySampleIndex, lowerXLims)
         lowerThreadFrequencySamples.append(lowerThreadFrequencySample)
 
+        # take the fft of this intensity curve - the strongest response (other
+        #  than DC bias) should be the frequency of the threads
         fft = np.abs(np.fft.fft(lowerThreadFrequencySample))
         ffts.append(fft)
 
