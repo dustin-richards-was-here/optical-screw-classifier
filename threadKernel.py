@@ -140,14 +140,9 @@ def main():
 
         # calculate the points of a line for either side of the screw based on the
         #  RANSAC results from above
-        _lowerLineY = np.empty(imgs[i].shape[1])
-        _upperLineY = np.empty(imgs[i].shape[1])
-
-        # TODO: optimize with numpy
-        for j in range(imgs[i].shape[1]):
-            _lowerLineY[j] = lowerSlope * j + lowerIntercept
-            _upperLineY[j] = upperSlope * j + upperIntercept
-
+        x = np.arange(0, imgs[i].shape[1])
+        _lowerLineY = lowerSlope * x + lowerIntercept
+        _upperLineY = upperSlope * x + upperIntercept
         lowerLineY.append(_lowerLineY)
         upperLineY.append(_upperLineY)
 
