@@ -115,6 +115,7 @@ def main():
 
     convs = []
     lowerInliers = []
+
     upperInliers = []
     lowerLineY = []
     upperLineY = []
@@ -122,6 +123,7 @@ def main():
     upperIntensityToCenter = []
     lowerThreadFrequencySamples = []
     ffts = []
+    diameters = []
 
     for i in range(len(imgs)):
         # convolve the image with the tread kernel and use RANSAC to find a cluster
@@ -185,6 +187,11 @@ def main():
         fft = np.abs(np.fft.fft(lowerThreadFrequencySample))
         ffts.append(fft)
 
+        # use the upper and lower y-intercepts from RANSAC to determine the
+        #  screw diameter
+        diameter = abs(lowerIntercept - upperIntercept)
+        diameters.append(diameter)
+
         print(str(i+1) + "/" + str(len(imgs)))
 
     subplotRows = 4
@@ -219,6 +226,9 @@ def main():
         threadPitchFrequency = abs(freqs[maxMagnitudeIndex])
         threadPitchPixels = 1 / threadPitchFrequency
         print(str(i) + " pitch: " + str(threadPitchPixels) + " pixels")
+
+        print(str(i) + " diameter: " + str(diameters[i]) + " pixels")
+        print("")
 
     plt.show()
 
