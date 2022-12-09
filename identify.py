@@ -5,8 +5,11 @@ import matplotlib.pyplot as plt
 import sys
 import pyransac3d as pyrsc
 import math
+import os
 
 import pdb
+
+FILE_FROM_CAMERA = "capt0000.jpg"
 
 # convolve img (should be a screw aligned along and centered with the y-axis)
 #  and kernel (should be a thread point) and use RANSAC to fit a line to the
@@ -49,7 +52,7 @@ def convoleAndRANSAC(img: np.ndarray, kernel: np.ndarray):
 
     # run RANSAC on the candidate points
     line = pyrsc.Line()
-    slope, intercept, inlierIndices = line.fit(candidatePoints, 0.01)
+    slope, intercept, inlierIndices = line.fit(candidatePoints, thresh = 0.01, maxIteration = 500)
 
     # collect the inlier points
     inliers = np.empty((len(inlierIndices), 2))
@@ -169,7 +172,13 @@ def identify(screwImg: Image, kernelImg: Image, plotParams: dict = None):
 
     if (plotParams):
         subplotRows = 4
-        subplotCols = plotParams['numImages']
+
+        subplotCols = None
+        if (plotParams['stream'] == True):
+            subplotCols = 1
+        else:
+            subplotCols = plotParams['numImages']
+
         imageIndex = plotParams['imageIndex']
 
         plt.subplot(subplotRows, subplotCols, imageIndex + 1)
@@ -192,6 +201,9 @@ def identify(screwImg: Image, kernelImg: Image, plotParams: dict = None):
         plt.subplot(subplotRows, subplotCols, imageIndex + 1 + subplotCols * 3)
         plt.plot(freqs, fft)
 
+        if (plotParams['stream'] == True):
+            plt.show()
+
     return diameterPixels, threadPitchPixels
 
 def main():
@@ -201,23 +213,47 @@ def main():
     kernelImgFile = sys.argv[1]
     kernelImg = ImageOps.grayscale(Image.open(kernelImgFile))
 
-    numImgs = len(sys.argv) - 2
+    numImgs = 0
+    stream = False
+    if (sys.argv[2] == "stream"):
+        numImgs = 999999
+        stream = True
+    else:
+        numImgs = len(sys.argv) - 2
+
     imgs = []
     plotParams = {'numImages': numImgs}
 
-    for i in range(numImgs):
-        file = sys.argv[i+2]
-        imgs.append(Image.open(file))
+    if (stream):
+        plotParams['stream'] = True
+    else:
+        plotParams['stream'] = False
 
-    for i in range(len(imgs)):
-        plotParams['imageIndex'] = i
-        diameterPixels, threadPitchPixels = identify(imgs[i], kernelImg, plotParams)
+    for i in range(numImgs):
+        file = None
+        if (stream):
+            file = FILE_FROM_CAMERA
+            try:
+                os.remove(file)
+            except:
+                pass
+            os.system("gphoto2 --capture-image-and-download 1> /dev/null")
+            plotParams['imageIndex'] = 0
+        else:
+            file = sys.argv[i+2]
+            plotParams['imageIndex'] = i
+
+        img = Image.open(file)
+
+        if (stream):
+            img = ImageOps.scale(img, 0.25)
+
+        diameterPixels, threadPitchPixels = identify(img, kernelImg, plotParams)
         print("===================")
         print("Image " + str(i + 1))
         print("Pitch (pixels): " + str(threadPitchPixels))
         print("Diameter (pixels): " + str(diameterPixels))
-
-    print("===================")
+        print("===================")
 
     plt.show()
 
