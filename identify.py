@@ -95,7 +95,8 @@ def getIntensityToCenter(img: np.ndarray, slope: float, intercept: float, xLimit
     return intensities
 
 def printUsage():
-    print("Usage: " + sys.argv[0] + " kernel img1 img2 img3 ...")
+    print("Usage (images): " + sys.argv[0] + " kernel img1 img2 img3 ...")
+    print("Usage (camera): " + sys.argv[0] + " stream")
 
 def identify(screwImg: Image, kernelImg: Image, plotParams: dict = None):
     img = np.array(ImageOps.grayscale(screwImg)).astype(float) / 255
@@ -182,16 +183,12 @@ def identify(screwImg: Image, kernelImg: Image, plotParams: dict = None):
         imageIndex = plotParams['imageIndex']
 
         plt.subplot(subplotRows, subplotCols, imageIndex + 1)
-        plt.imshow(img)
+        plt.imshow(img + conv)
         plt.plot(upperInliers[:, 0], upperInliers[:, 1], linewidth = 0, marker = '.', color = 'green')
         plt.plot(lowerInliers[:, 0], lowerInliers[:, 1], linewidth = 0, marker = '.', color = 'red')
-        plt.plot(lowerLineY, color = 'yellow')
-        plt.plot(upperLineY, color = 'magenta')
         
         plt.subplot(subplotRows, subplotCols, imageIndex + 1 + subplotCols)
-        plt.imshow(conv + img)
-        plt.plot(upperInliers[:, 0], upperInliers[:, 1], linewidth = 0, marker = '.', color = 'green')
-        plt.plot(lowerInliers[:, 0], lowerInliers[:, 1], linewidth = 0, marker = '.', color = 'red')
+        plt.imshow(img)
         plt.plot(lowerLineY, color = 'yellow')
         plt.plot(upperLineY, color = 'magenta')
 
@@ -209,27 +206,28 @@ def identify(screwImg: Image, kernelImg: Image, plotParams: dict = None):
 def main():
     if (len(sys.argv) < 3):
         printUsage()
+        return
 
     kernelImgFile = sys.argv[1]
     kernelImg = ImageOps.grayscale(Image.open(kernelImgFile))
 
-    numImgs = 0
+    numImages = 0
     stream = False
     if (sys.argv[2] == "stream"):
-        numImgs = 999999
+        numImages = 999999
         stream = True
     else:
-        numImgs = len(sys.argv) - 2
+        numImages = len(sys.argv) - 2
 
     imgs = []
-    plotParams = {'numImages': numImgs}
+    plotParams = {'numImages': numImages}
 
     if (stream):
         plotParams['stream'] = True
     else:
         plotParams['stream'] = False
 
-    for i in range(numImgs):
+    for i in range(numImages):
         file = None
         if (stream):
             file = FILE_FROM_CAMERA
