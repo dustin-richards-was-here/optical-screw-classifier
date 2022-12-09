@@ -14,6 +14,8 @@ EMPTY_JIG_IMAGE_FILE = "img/jig-captures/empty.jpg"
 # a y value that consistently sits in the middle of the screw. doesn't need to be
 #  the exact center.
 SCREW_MIDDLE_Y = 1840
+# the x coordinate we expect the bottom of the screw head to be aligned with
+SCREW_HEAD_X = 645
 MM_PER_PIXEL = 0.01808972504
 
 # convolve img (should be a screw aligned along and centered with the y-axis)
@@ -104,53 +106,20 @@ def getIntensityToCenter(img: np.ndarray, slope: float, intercept: float, xLimit
 def getScrewRegions(img, pad=0):
     THRESH = 230 / 255
     img_thresh = img < THRESH
-    mid_y = img.shape[0] // 2
 
-    # Find the end of the screw
-    # Find the first non-white pixel from right-to-left
-    dat_end = []
-    for img_row in img_thresh:
-        screw_coords = np.argwhere(img_row)
-        last_pix = 0
-        if len(screw_coords) > 0:
-            last_pix = screw_coords[-1,0]
-        dat_end.append(last_pix)
-    dat_end = np.array(dat_end)
+    vert_sums = np.sum(img_thresh, axis=0)
+    screw_start = np.where(vert_sums > 6)[0][0]
+    screw_end = np.where(vert_sums > 6)[0][-1]
 
-    screw_end = dat_end[mid_y]
+    horizontal_sums = np.sum(img_thresh, axis=1)
+    head_top = np.where(horizontal_sums > 6)[0][0]
+    head_bottom = np.where(horizontal_sums > 6)[0][-1]
+    screw_top = np.where(horizontal_sums > 100)[0][0]
+    screw_bottom = np.where(horizontal_sums > 100)[0][-1]
 
-    # Find the start of the screw
-    screw_start = np.argwhere(img_thresh[mid_y])[0,0]
+    head_end = SCREW_HEAD_X
 
-    # The largest "jump" in end data is (probably) the edge
-    diffs = dat_end[1:] - dat_end[:-1]
-
-    # Get the top and bottom of the thread
-    edge_loc_top = np.argmax(diffs[:mid_y])
-    edge_loc_bottom = mid_y + np.argmin(diffs[mid_y:])+1
-
-    # Go a bit further until past any additional abrupt changes
-    orig_edge_loc = edge_loc_top
-    while diffs[edge_loc_top+1] > 0.1 * diffs[orig_edge_loc]:
-        edge_loc_top -= 1
-    orig_edge_loc = edge_loc_bottom
-    while diffs[edge_loc_bottom] < 0.1 * diffs[orig_edge_loc-1]:
-        edge_loc_bottom += 1
-
-    # Get the start of the thread
-    head_end = dat_end[edge_loc_top]
-
-    # Get the top/bottom of the head
-    head_top = np.argwhere(dat_end > (screw_start+2))[0,0]
-    head_bottom = np.argwhere(dat_end > (screw_start+2))[-1,0]+1
-
-    # Crop and return (head, screw)
-    #return [
-    #    img[head_top-pad:head_bottom+1+pad, screw_start-pad:head_end+1+pad], 
-    #    img[edge_loc_top-pad:edge_loc_bottom+1+pad, head_end-pad:screw_end+1+pad]
-    #    ]
-
-    return screw_start, head_end, screw_end
+    return screw_start, head_end, screw_end, head_top, head_bottom
 
 def identify(screwImg: Image, emptyImg: Image, kernelImg: Image, plotParams: dict = None):
     matrix = (0, 0, 0, 0,
@@ -164,7 +133,7 @@ def identify(screwImg: Image, emptyImg: Image, kernelImg: Image, plotParams: dic
     img = img - emptyImg
 
     lowerKernel = np.array(kernelImg).astype(float) / 255
-    lowerKernel[int(lowerKernel.shape[0]//2 - 10) : int(lowerKernel.shape[0]//2 - 5), :] = 0
+    #lowerKernel[int(lowerKernel.shape[0]//2 - 10) : int(lowerKernel.shape[0]//2 - 5), :] = 0
     upperKernel = np.array(kernelImg.rotate(180)).astype(float) / 255
 
     lowerKernel = (lowerKernel - 0.5) * 2
@@ -235,7 +204,7 @@ def identify(screwImg: Image, emptyImg: Image, kernelImg: Image, plotParams: dic
     threadPitchFrequency = abs(freqs[maxMagnitudeIndex])
     threadPitchPixels = 1 / threadPitchFrequency
 
-    headStartX, headEndX, threadsEndX = getScrewRegions(img)
+    headStartX, headEndX, threadsEndX, headTopY, headBottomY = getScrewRegions(img)
     headLengthPixels = abs(headStartX - headEndX)
     threadLengthPixels = abs(headEndX - threadsEndX)
 
@@ -262,6 +231,8 @@ def identify(screwImg: Image, emptyImg: Image, kernelImg: Image, plotParams: dic
         plt.plot((headStartX, headStartX), (0, img.shape[0]), color = 'red')
         plt.plot((headEndX, headEndX), (0, img.shape[0]), color = 'red')
         plt.plot((threadsEndX, threadsEndX), (0, img.shape[0]), color = 'red')
+        plt.plot((0, img.shape[1]), (headTopY, headTopY), color = 'red')
+        plt.plot((0, img.shape[1]), (headBottomY, headBottomY), color = 'red')
 
         plt.subplot(subplotRows, subplotCols, imageIndex + 1 + subplotCols * 2)
         plt.plot(upperThreadFrequencySample)
@@ -276,7 +247,7 @@ def identify(screwImg: Image, emptyImg: Image, kernelImg: Image, plotParams: dic
 
 def printUsage():
     print("Usage (images): " + sys.argv[0] + " kernel img1 img2 img3 ...")
-    print("Usage (camera): " + sys.argv[0] + " kernel stream")
+    print("Usage (camera): " + sys.argv[0] + " kernel stream [--calibrate]")
 
 def main():
     if (len(sys.argv) < 3):
@@ -286,9 +257,6 @@ def main():
     kernelImgFile = sys.argv[1]
     kernelImg = ImageOps.grayscale(Image.open(kernelImgFile))
 
-    emptyImg = Image.open(EMPTY_JIG_IMAGE_FILE)
-    emptyImg = emptyImg.crop((0, SCREW_MIDDLE_Y - emptyImg.size[1]/6, emptyImg.size[0]/3*2, SCREW_MIDDLE_Y + emptyImg.size[1]/6))
-
     numImages = 0
     stream = False
     if (sys.argv[2] == "stream"):
@@ -296,6 +264,23 @@ def main():
         stream = True
     else:
         numImages = len(sys.argv) - 2
+
+    emptyImg = None
+    if (stream and sys.argv[3] == "--calibrate"):
+        input("Ready to calibrate, ensure jig is empty and press enter...")
+        try:
+            os.remove(FILE_FROM_CAMERA)
+        except:
+            pass
+        os.system("gphoto2 --capture-image-and-download 1> /dev/null")
+        emptyImg = Image.open(FILE_FROM_CAMERA)
+        print("Calibrated!")
+    else:
+        emptyImg = Image.open(EMPTY_JIG_IMAGE_FILE)
+
+    if (emptyImg == None):
+        raise RuntimeError("Failed to capture image!")
+    emptyImg = emptyImg.crop((0, SCREW_MIDDLE_Y - emptyImg.size[1]/6, emptyImg.size[0]/3*2, SCREW_MIDDLE_Y + emptyImg.size[1]/6))
 
     imgs = []
     plotParams = {'numImages': numImages}
@@ -309,6 +294,21 @@ def main():
         file = None
         if (stream):
             file = FILE_FROM_CAMERA
+            go = None
+            while (go == None):
+                go = input("Capture image? [Y/n] ")
+
+                if (go.upper() == 'Y' or go == ''):
+                    pass
+                elif (go.upper() == 'N'):
+                    try:
+                        os.remove(file)
+                    except:
+                        pass
+                    return
+                else:
+                    go = None
+
             try:
                 os.remove(file)
             except:
@@ -321,13 +321,6 @@ def main():
 
         img = Image.open(file)
 
-        #if (stream):
-        #    # img = ImageOps.scale(img, 0.25)
-        #    img = img.crop((0, img.size[1]/4, img.size[0]/3*2, img.size[1]/4*3))
-        #    plt.imshow(img)
-        #    plt.show()
-
-        #img = img.crop((0, img.size[1]/4, img.size[0]/3*2, img.size[1]/4*3))
         img = img.crop((0, SCREW_MIDDLE_Y - img.size[1]/6, img.size[0]/3*2, SCREW_MIDDLE_Y + img.size[1]/6))
 
         diameterPixels, threadLengthPixels, threadPitchPixels = identify(img, emptyImg, kernelImg, plotParams)
