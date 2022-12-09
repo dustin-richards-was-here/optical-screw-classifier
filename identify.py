@@ -219,7 +219,8 @@ def identify(screwImg: Image, kernelImg: Image, plotParams: dict = None):
     threadPitchPixels = 1 / threadPitchFrequency
 
     headStartX, headEndX, threadsEndX = getScrewRegions(img)
-    print(headStartX, headEndX, threadsEndX)
+    headLengthPixels = abs(headStartX - headEndX)
+    threadLengthPixels = abs(headEndX - threadsEndX)
 
     if (plotParams):
         subplotRows = 4
@@ -254,7 +255,7 @@ def identify(screwImg: Image, kernelImg: Image, plotParams: dict = None):
         if (plotParams['stream'] == True):
             plt.show()
 
-    return diameterPixels, threadPitchPixels
+    return diameterPixels, threadLengthPixels, threadPitchPixels
 
 def printUsage():
     print("Usage (images): " + sys.argv[0] + " kernel img1 img2 img3 ...")
@@ -303,11 +304,12 @@ def main():
         if (stream):
             img = ImageOps.scale(img, 0.25)
 
-        diameterPixels, threadPitchPixels = identify(img, kernelImg, plotParams)
+        diameterPixels, threadLengthPixels, threadPitchPixels = identify(img, kernelImg, plotParams)
         print("===================")
         print("Image " + str(i + 1))
-        print("Pitch (pixels): " + str(threadPitchPixels))
+        print("Length (pixels): " + str(threadLengthPixels))
         print("Diameter (pixels): " + str(diameterPixels))
+        print("Pitch (pixels): " + str(threadPitchPixels))
         print("===================")
 
     plt.show()
