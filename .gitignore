@@ -1,2 +1,6 @@
+# vim swap files
 *.swp
+# ghostwriter backup files
+*.backup
+
 __pycache__
