@@ -104,22 +104,37 @@ def getIntensityToCenter(img: np.ndarray, slope: float, intercept: float, xLimit
     return intensities
 
 def getScrewRegions(img, pad=0):
-    THRESH = 230 / 255
+    img = img - np.min(img)
+    img = img / np.max(img)
+
+    #THRESH = 230 / 255
+    THRESH = 0.5
     img_thresh = img < THRESH
 
+    lowerSumThreshold = 20
+
     vert_sums = np.sum(img_thresh, axis=0)
-    screw_start = np.where(vert_sums > 6)[0][0]
-    screw_end = np.where(vert_sums > 6)[0][-1]
+    screw_start = np.where(vert_sums > lowerSumThreshold)[0][0]
+    screw_end = np.where(vert_sums > lowerSumThreshold)[0][-1]
 
     horizontal_sums = np.sum(img_thresh, axis=1)
-    head_top = np.where(horizontal_sums > 6)[0][0]
-    head_bottom = np.where(horizontal_sums > 6)[0][-1]
+    head_top = np.where(horizontal_sums > lowerSumThreshold)[0][0]
+    head_bottom = np.where(horizontal_sums > lowerSumThreshold)[0][-1]
     screw_top = np.where(horizontal_sums > 100)[0][0]
     screw_bottom = np.where(horizontal_sums > 100)[0][-1]
 
+    headTypeCheckX = int((SCREW_HEAD_X - screw_start) * 0.75)
+    headTypeCheckY = int((head_top - head_bottom) * 0.1)
+
+    countersunkHead = None
+    if (img_thresh[headTypeCheckY, headTypeCheckX]):
+        countersunkHead = True
+    else:
+        countersunkHead = False
+
     head_end = SCREW_HEAD_X
 
-    return screw_start, head_end, screw_end, head_top, head_bottom
+    return screw_start, head_end, screw_end, head_top, head_bottom, countersunkHead
 
 def identify(screwImg: Image, emptyImg: Image, kernelImg: Image, plotParams: dict = None):
     matrix = (0, 0, 0, 0,
@@ -133,7 +148,6 @@ def identify(screwImg: Image, emptyImg: Image, kernelImg: Image, plotParams: dic
     img = img - emptyImg
 
     lowerKernel = np.array(kernelImg).astype(float) / 255
-    #lowerKernel[int(lowerKernel.shape[0]//2 - 10) : int(lowerKernel.shape[0]//2 - 5), :] = 0
     upperKernel = np.array(kernelImg.rotate(180)).astype(float) / 255
 
     lowerKernel = (lowerKernel - 0.5) * 2
@@ -144,10 +158,12 @@ def identify(screwImg: Image, emptyImg: Image, kernelImg: Image, plotParams: dic
     # we do this twice because one of the kernels is upside down in order to
     #  get the threads in the lower half of the image
     lowerConv, lowerInliers, lowerSlope, lowerIntercept = convoleAndRANSAC(img, lowerKernel)
-    upperConv, upperInliers, upperSlope, upperIntercept = convoleAndRANSAC(img, upperKernel)
+    upperConv, upperInliers, upperSlope, upperIntercept = convoleAndRANSAC(img[0:int(img.shape[0]/2), :], upperKernel)
 
     # combine the two convolution images, really just for visualizing
-    conv = lowerConv + upperConv
+    upperConvZeros = np.zeros(lowerConv.shape)
+    upperConvZeros[0:upperConv.shape[0], 0:upperConv.shape[1]] = upperConv
+    conv = lowerConv + upperConvZeros
 
     # calculate the points of a line for either side of the screw based on the
     #  RANSAC results from above
@@ -204,9 +220,12 @@ def identify(screwImg: Image, emptyImg: Image, kernelImg: Image, plotParams: dic
     threadPitchFrequency = abs(freqs[maxMagnitudeIndex])
     threadPitchPixels = 1 / threadPitchFrequency
 
-    headStartX, headEndX, threadsEndX, headTopY, headBottomY = getScrewRegions(img)
+    headStartX, headEndX, threadsEndX, headTopY, headBottomY, countersunkHead = getScrewRegions(img)
     headLengthPixels = abs(headStartX - headEndX)
     threadLengthPixels = abs(headEndX - threadsEndX)
+
+    if (countersunkHead):
+        threadLengthPixels = headLengthPixels + threadLengthPixels
 
     if (plotParams):
         subplotRows = 4
@@ -243,7 +262,7 @@ def identify(screwImg: Image, emptyImg: Image, kernelImg: Image, plotParams: dic
         if (plotParams['stream'] == True):
             plt.show()
 
-    return diameterPixels, threadLengthPixels, threadPitchPixels
+    return diameterPixels, threadLengthPixels, threadPitchPixels, countersunkHead
 
 def printUsage():
     print("Usage (images): " + sys.argv[0] + " kernel img1 img2 img3 ...")
@@ -323,12 +342,18 @@ def main():
 
         img = img.crop((0, SCREW_MIDDLE_Y - img.size[1]/6, img.size[0]/3*2, SCREW_MIDDLE_Y + img.size[1]/6))
 
-        diameterPixels, threadLengthPixels, threadPitchPixels = identify(img, emptyImg, kernelImg, plotParams)
+        diameterPixels, threadLengthPixels, threadPitchPixels, countersunkHead = identify(img, emptyImg, kernelImg, plotParams)
+        headType = None
+        if (countersunkHead):
+            headType = "countersunk"
+        else:
+            headType = "not countersunk"
         print("===================")
         print("Image " + str(i + 1))
         print("Length (mm): " + str(threadLengthPixels * MM_PER_PIXEL))
         print("Diameter (mm): " + str(diameterPixels * MM_PER_PIXEL))
         print("Pitch (mm): " + str(threadPitchPixels * MM_PER_PIXEL))
+        print("Head type: " + headType)
         print("===================")
 
     plt.show()
