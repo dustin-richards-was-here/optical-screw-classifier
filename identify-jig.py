@@ -16,6 +16,7 @@ EMPTY_JIG_IMAGE_FILE = "img/jig-captures/empty.jpg"
 SCREW_MIDDLE_Y = 1840
 # the x coordinate we expect the bottom of the screw head to be aligned with
 SCREW_HEAD_X = 645
+THREAD_BOTTOM_Y = 1907
 MM_PER_PIXEL = 0.01808972504
 
 # convolve img (should be a screw aligned along and centered with the y-axis)
@@ -136,7 +137,7 @@ def getScrewRegions(img, pad=0):
 
     return screw_start, head_end, screw_end, head_top, head_bottom, countersunkHead
 
-def identify(screwImg: Image, emptyImg: Image, kernelImg: Image, plotParams: dict = None):
+def identify(screwImg: Image, emptyImg: Image, kernelImg: Image, yOffset: int, plotParams: dict = None):
     matrix = (0, 0, 0, 0,
               0, 0, 0, 0,
               0, 0, 1, 0)
@@ -157,13 +158,24 @@ def identify(screwImg: Image, emptyImg: Image, kernelImg: Image, plotParams: dic
     #  of points that represents the threadform
     # we do this twice because one of the kernels is upside down in order to
     #  get the threads in the lower half of the image
-    lowerConv, lowerInliers, lowerSlope, lowerIntercept = convoleAndRANSAC(img, lowerKernel)
-    upperConv, upperInliers, upperSlope, upperIntercept = convoleAndRANSAC(img[0:int(img.shape[0]/2), :], upperKernel)
+    upperBound = 0
+    middleBound = int(img.shape[0]/2)
+    lowerBound = THREAD_BOTTOM_Y - yOffset
+    lowerConv, lowerInliers, lowerSlope, lowerIntercept = convoleAndRANSAC(img[middleBound:lowerBound, :], lowerKernel)
+    upperConv, upperInliers, upperSlope, upperIntercept = convoleAndRANSAC(img[upperBound:middleBound, :], upperKernel)
+    
+    lowerInliers[:, 1] += middleBound
+    upperInliers[:, 1] += upperBound
+    lowerIntercept += middleBound
+    upperIntercept += upperBound
 
     # combine the two convolution images, really just for visualizing
-    upperConvZeros = np.zeros(lowerConv.shape)
-    upperConvZeros[0:upperConv.shape[0], 0:upperConv.shape[1]] = upperConv
-    conv = lowerConv + upperConvZeros
+    lowerConvFullFrame = np.zeros(img.shape)
+    upperConvFullFrame = np.zeros(img.shape)
+    lowerConvFullFrame[middleBound:middleBound + lowerConv.shape[0], 0:lowerConv.shape[1]] = lowerConv
+    upperConvFullFrame[upperBound:upperBound + upperConv.shape[0], 0:upperConv.shape[1]] = upperConv
+
+    conv = lowerConvFullFrame + upperConvFullFrame
 
     # calculate the points of a line for either side of the screw based on the
     #  RANSAC results from above
@@ -340,9 +352,11 @@ def main():
 
         img = Image.open(file)
 
-        img = img.crop((0, SCREW_MIDDLE_Y - img.size[1]/6, img.size[0]/3*2, SCREW_MIDDLE_Y + img.size[1]/6))
+        yUpperBound = SCREW_MIDDLE_Y - img.size[1]/6
+        yLowerBound = SCREW_MIDDLE_Y + img.size[1]/6
+        img = img.crop((0, yUpperBound, img.size[0]/3*2, yLowerBound))
 
-        diameterPixels, threadLengthPixels, threadPitchPixels, countersunkHead = identify(img, emptyImg, kernelImg, plotParams)
+        diameterPixels, threadLengthPixels, threadPitchPixels, countersunkHead = identify(img, emptyImg, kernelImg, int(yUpperBound), plotParams)
         headType = None
         if (countersunkHead):
             headType = "countersunk"
